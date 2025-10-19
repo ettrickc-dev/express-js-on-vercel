@@ -1,11 +1,10 @@
-// api/fulfill.js
-const Stripe = require('stripe');
-const JSZip = require('jszip');
-const { TransactionalEmailsApi, SendSmtpEmail } = require('@getbrevo/brevo');
+// api/fulfill.js  (ESM)
+import Stripe from 'stripe';
+import JSZip from 'jszip';
+import { TransactionalEmailsApi, SendSmtpEmail } from '@getbrevo/brevo';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' });
 
-/* ===== Minimal DOCX builder (Node) ===== */
 function xmlEscape(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function docxParagraph(text){return String(text).split('\n').map(l=>`<w:p><w:r><w:t>${xmlEscape(l)}</w:t></w:r></w:p>`).join('');}
 function docxPage(text){return docxParagraph(text)+`<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;}
@@ -45,9 +44,8 @@ async function buildDocxBuffer(pages){
   zip.folder('word').file('document.xml', buildDocxXml(pages));
   return zip.generateAsync({ type: 'nodebuffer' });
 }
-/* ======================================= */
 
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   try {
     if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
 
@@ -58,24 +56,20 @@ module.exports = async (req, res) => {
       return res.status(400).json({ ok:false, error:'Missing document pages' });
     }
 
-    // 1) Verify Stripe payment
     const session = await stripe.checkout.sessions.retrieve(session_id);
     if (!session || session.payment_status !== 'paid') {
       return res.status(402).json({ ok:false, error:'Payment not completed' });
     }
 
-    // Prefer Stripe email if present
     const sendTo = (session.customer_details && session.customer_details.email) || toEmail;
 
-    // 2) Build server-side DOCX
     const docxBuffer = await buildDocxBuffer(pages);
     const safeName = (applicantName || 'APPLICANT').replace(/[^a-z0-9\- ]+/gi,'_');
     const type = licensureType || 'RN';
     const filename = `${safeName}_${type}_Appeal_Pack.docx`;
 
-    // 3) Email via Brevo
-    const apiInstance = new TransactionalEmailsApi();
-    apiInstance.setApiKey(0, process.env.BREVO_API_KEY);
+    const api = new TransactionalEmailsApi();
+    api.setApiKey(0, process.env.BREVO_API_KEY);
 
     const email = new SendSmtpEmail();
     email.sender = { email: process.env.FROM_EMAIL, name: 'Fast Legal Templates' };
@@ -86,16 +80,13 @@ module.exports = async (req, res) => {
       <p>Your personalized <strong>${product || 'Appeal Pack'}</strong> is attached as a single .DOCX.</p>
       <p>If you need changes, reply to this email and we’ll help.</p>
     `;
-    email.attachment = [{
-      name: filename,
-      content: docxBuffer.toString('base64')
-    }];
+    email.attachment = [{ name: filename, content: docxBuffer.toString('base64') }];
 
-    await apiInstance.sendTransacEmail(email);
+    await api.sendTransacEmail(email);
 
     return res.status(200).json({ ok:true });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ ok:false, error: err?.message || 'Server error' });
   }
-};
+}
