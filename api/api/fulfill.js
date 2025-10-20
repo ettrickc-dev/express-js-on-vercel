@@ -5,6 +5,16 @@ import { TransactionalEmailsApi, SendSmtpEmail } from '@getbrevo/brevo';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' });
 
+// --- CORS for your GoDaddy origin ---
+const ALLOWED_ORIGIN = 'https://fastlegaltemplates.com';
+
+function setCors(res) {
+  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+  res.setHeader('Vary', 'Origin'); // good cache hygiene
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
 function xmlEscape(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function docxParagraph(text){return String(text).split('\n').map(l=>`<w:p><w:r><w:t>${xmlEscape(l)}</w:t></w:r></w:p>`).join('');}
 function docxPage(text){return docxParagraph(text)+`<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;}
@@ -21,8 +31,8 @@ function buildDocxXml(pages){
     xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
     xmlns:w10="urn:schemas-microsoft-com:office:word"
     xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-    xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"
-    xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
+    xmlns:w14="http://schemas.microsoft.com/office/2010/word/wordml"
+    xmlns:wpg="http://schemas.microsoft.com/office/2010/wordprocessingGroup"
     xmlns:wpi="http://schemas.microsoft.com/office/2010/wordprocessingInk"
     xmlns:wne="http://schemas.microsoft.com/office/2006/wordml"
     xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" mc:Ignorable="w14 wp14">
@@ -46,6 +56,12 @@ async function buildDocxBuffer(pages){
 }
 
 export default async function handler(req, res) {
+  setCors(res);
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
   try {
     if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
 
@@ -90,3 +106,4 @@ export default async function handler(req, res) {
     return res.status(500).json({ ok:false, error: err?.message || 'Server error' });
   }
 }
+
